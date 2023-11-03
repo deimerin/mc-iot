@@ -1,4 +1,5 @@
 # mc-iot
-Sketches from class
+
+Class Project
 
 Remote push test
