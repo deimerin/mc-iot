@@ -5,7 +5,7 @@
 #include "esp_camera.h"
 #include <base64.h>
 
-#define CAMERA_MODEL_WROVER_KIT
+// #define CAMERA_MODEL_WROVER_KIT
 
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
@@ -30,7 +30,8 @@
 
 const char *ssid = "***";
 const char *pass = "***";
-camera_config_t config;
+
+void startCameraServer();
 
 void setup() {
   Serial.begin(9600);
@@ -40,18 +41,8 @@ void setup() {
   pinMode(LEDG, OUTPUT);
   pinMode(BUTTON, INPUT);
 
-  delay(2000);
-
-  // WiFi Setup
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LEDR, HIGH);
-    delay(500);
-    digitalWrite(LEDR, LOW);
-    delay(500);
-  }
-
   // Camera config
+  camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -72,13 +63,19 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
-  //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
-
-  config.frame_size = FRAMESIZE_QVGA;
+  // config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
 
   // config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // I dont know what this does
   // config.fb_location = CAMERA_FB_IN_PSRAM; // Nor this
-  config.jpeg_quality = 12;
+
+  // Setting 1
+  // config.frame_size = FRAMESIZE_UXGA;
+  // config.jpeg_quality = 10;
+  // config.fb_count = 2;
+
+  // Setting 2
+  config.frame_size = FRAMESIZE_CIF;
+  config.jpeg_quality = 10; // Higher value more fps, I think, this was 12 originally
   config.fb_count = 1;
 
   // Initializing camera
@@ -88,41 +85,40 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
+
+  // Video options
+  sensor_t *s = esp_camera_sensor_get();
+  s->set_vflip(s, 1);        //1-Upside down, 0-No operation
+  s->set_hmirror(s, 1);      //1-Reverse left and right, 0-No operation
+  s->set_brightness(s, 2);   //up the blightness just a bit
+  // s->set_saturation(s, -1);  //lower the saturation
+
+  // drop down frame size for higher initial frame rate
+  s->set_framesize(s, FRAMESIZE_VGA);
+
+  // WiFi Setup
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED) {
+    digitalWrite(LEDR, HIGH);
+    delay(500);
+    digitalWrite(LEDR, LOW);
+    delay(500);
+  }
+
+  Serial.print("Camera Ready! Use 'http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("' to connect");
+
+  startCameraServer();
+
 }
 
 void loop() {
 
-  if (digitalRead(BUTTON) == LOW) {
+  if (digitalRead(BUTTON) == HIGH) {
     classify();
+    //Serial.println(digitalRead(BUTTON));
   }
-
-  /*
-  if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(LEDG, HIGH);
-
-    HTTPClient http;
-    http.begin("http://jsonplaceholder.typicode.com/comments?id=10");
-    int httpCode = http.GET();
-
-    if (httpCode > 0) {
-      String payload = http.getString();
-      Serial.println(httpCode);
-      Serial.println(payload);
-    }
-
-    else {
-      digitalWrite(LEDG, LOW);
-      digitalWrite(LEDR, HIGH);
-    }
-
-    http.end();
-  }
-
-  digitalWrite(LEDR, LOW);
-  digitalWrite(LEDG, LOW);
-
-  delay(5000);
-  */
 }
 
 void classify() {
@@ -134,6 +130,8 @@ void classify() {
   if (!fb) {
     Serial.println("Camera capture failed");
     digitalWrite(LEDR, HIGH);
+    delay(500);
+    digitalWrite(LEDR, LOW);
     return;
   }
 
@@ -154,16 +152,18 @@ void classify() {
   HTTPClient http;
   http.begin("https://api.clarifai.com/v2/models/" + model_id + "/outputs");
   http.addHeader("Accept", "application/json");
-  http.addHeader("Authorization", "Key ****");
+  http.addHeader("Authorization", "Key ***");
 
   int response_code = http.POST(payload);
   String response;
 
   if (response_code > 0) {
+    digitalWrite(LEDG, HIGH);
     Serial.print(response_code);
     Serial.print("Returned String: ");
     response = http.getString();
     Serial.println(response);
+    digitalWrite(LEDG, LOW);
   } else {
     Serial.print("POST Error: ");
     Serial.print(response_code);
@@ -175,6 +175,7 @@ void classify() {
   deserializeJson(doc, response);
 
   for (int i = 0; i < 10; i++) {
+
     const String name = doc["outputs"][0]["data"]["concepts"][i]["name"];
     const float prob = doc["outputs"][0]["data"]["concepts"][i]["value"];
 
