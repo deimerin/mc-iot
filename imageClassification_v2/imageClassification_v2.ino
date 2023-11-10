@@ -5,8 +5,6 @@
 #include "esp_camera.h"
 #include <base64.h>
 
-// #define CAMERA_MODEL_WROVER_KIT
-
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 21
@@ -68,7 +66,7 @@ void setup() {
   // config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // I dont know what this does
   // config.fb_location = CAMERA_FB_IN_PSRAM; // Nor this
 
-  // Setting 1
+  // Settings
   config.frame_size = FRAMESIZE_UXGA;
   config.jpeg_quality = 10;
   config.fb_count = 2;
@@ -112,7 +110,6 @@ void loop() {
 
   if (digitalRead(BUTTON) == HIGH) {
     classify();
-    //Serial.println(digitalRead(BUTTON));
   }
 }
 
@@ -133,7 +130,7 @@ void classify() {
   // Encoding the image
   size_t size = fb->len;
   String buffer = base64::encode((uint8_t *)fb->buf, fb->len);
-  String payload = "{\"user_app_id\": {\"user_id\": \"8rmb75748zzm\",\"app_id\": \"ESP32-API\"},\"inputs\": [{ \"data\": {\"image\": {\"base64\": \"" + buffer + "\"}}}]}";
+  String payload = "{\"user_app_id\": {\"user_id\": \"8rmb75748zzm\",\"app_id\": \"ESP32-API\"},\"workflow_id\": \"workflow-58c83d\", \"inputs\": [{ \"data\": {\"image\": {\"base64\": \"" + buffer + "\"}}}]}";
 
   buffer = "";
   // Uncomment this if you want to show the payload
@@ -142,10 +139,10 @@ void classify() {
   esp_camera_fb_return(fb);
 
   // API Setup
-  String model_id = "general-image-recognition";
+  // String model_id = "general-image-recognition";
 
   HTTPClient http;
-  http.begin("https://api.clarifai.com/v2/models/" + model_id + "/outputs");
+  http.begin("https://api.clarifai.com/v2/users/8rmb75748zzm/apps/ESP32-API/workflows/workflow-58c83d/results");
   http.addHeader("Accept", "application/json");
   http.addHeader("Authorization", "Key ***");
 
@@ -157,7 +154,7 @@ void classify() {
     Serial.print(response_code);
     Serial.print("Returned String: ");
     response = http.getString();
-    Serial.println(response);
+    // Serial.println(response);
     digitalWrite(LEDG, LOW);
   } else {
     Serial.print("POST Error: ");
@@ -179,6 +176,5 @@ void classify() {
     Serial.println(name);
     Serial.print("Probability:");
     Serial.println(prob);
-    Serial.println();
   }
 }
