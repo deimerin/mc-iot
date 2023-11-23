@@ -1,9 +1,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
-//#include <Arduino.h>
 #include <ArduinoJson.h>
 #include "esp_camera.h"
-#include <base64.h>
 
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
@@ -28,8 +26,7 @@
 
 const char *ssid = "***";
 const char *pass = "***";
-
-void startCameraServer();
+const unsigned long timeout = 30000;  // 30 seconds
 
 void setup() {
   Serial.begin(9600);
@@ -59,15 +56,11 @@ void setup() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 10000000; // 20000000 default
-  config.pixel_format = PIXFORMAT_JPEG;  // for streaming
-  // config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
-
-  // config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // I dont know what this does
-  // config.fb_location = CAMERA_FB_IN_PSRAM; // Nor this
+  config.xclk_freq_hz = 10000000;
+  config.pixel_format = PIXFORMAT_JPEG;
 
   // Settings
-  config.frame_size = FRAMESIZE_UXGA;
+  config.frame_size = FRAMESIZE_QVGA;
   config.jpeg_quality = 10;
   config.fb_count = 2;
 
@@ -81,100 +74,98 @@ void setup() {
 
   // Video options
   sensor_t *s = esp_camera_sensor_get();
-  s->set_vflip(s, 1);        //1-Upside down, 0-No operation
-  s->set_hmirror(s, 1);      //1-Reverse left and right, 0-No operation
-  s->set_brightness(s, 2);   //up the blightness just a bit
+  s->set_vflip(s, 1);       //1-Upside down, 0-No operation
+  s->set_hmirror(s, 1);     //1-Reverse left and right, 0-No operation
+  s->set_brightness(s, 2);  //up the blightness just a bit
   // s->set_saturation(s, -1);  //lower the saturation
 
   // drop down frame size for higher initial frame rate
-  s->set_framesize(s, FRAMESIZE_VGA);
+  // s->set_framesize(s, FRAMESIZE_VGA);
+  Serial.println("Device ON!");
+}
 
-  // WiFi Setup
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LEDR, HIGH);
-    delay(500);
-    digitalWrite(LEDR, LOW);
-    delay(500);
+void postImage(camera_fb_t *fb) {
+  HTTPClient http;
+  // Add server resource
+  http.begin("https://esp32-api-mediator-36025d758c37.herokuapp.com:55925/imageObjects");
+  // imageObjects or imageLabels
+  http.addHeader("Content-Type", "image/jpeg");
+  int httpResponseCode = http.POST(fb->buf, fb->len);
+
+  // Check response code
+  if (httpResponseCode == 200) {
+    String response = http.getString();
+    parseResults(response);
+  } else {
+    // show error
   }
 
-  Serial.print("Camera Ready! Use 'http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
+  // Close connection
+  http.end();
+  WiFi.disconnect();
+}
 
-  startCameraServer();
+void parseResults(String response) {
+  // Calculate correct size later
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, response);
+  JsonArray array = doc.as<JsonArray>();
+  for (JsonVariant v : array) {
+    JsonObject object = v.as<JsonObject>();
+    //do something
+    const char *name = object["name"];
+    float score = object["score"];
+    Serial.println(name);
+    Serial.println(score);
+    Serial.println();
+  }
+}
 
+void sendImage() {
+  camera_fb_t *fb = capture();
+  if (!fb || fb->format != PIXFORMAT_JPEG) {
+    Serial.println("Camera capture failed");
+    esp_camera_fb_return(fb);
+    return;
+  } else {
+    if (wifiConnect()) {
+      // send image to server
+      // add led/lcd indication
+      postImage(fb);
+    } else {
+      // Show error
+      Serial.println("Error sending image");
+    }
+    esp_camera_fb_return(fb);
+  }
+}
+
+camera_fb_t *capture() {
+  // Create image using camera
+  camera_fb_t *fb = NULL;
+  esp_err_t res = ESP_OK;
+  fb = esp_camera_fb_get();
+  return fb;
+}
+
+bool wifiConnect() {
+  unsigned long startingTime = millis();
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    if ((millis() - startingTime) > timeout) {
+      digitalWrite(LEDR, HIGH);
+      return false;
+    }
+  }
+  return true;
 }
 
 void loop() {
 
-  if (digitalRead(BUTTON) == HIGH) {
-    classify();
-  }
-}
-
-void classify() {
-
-  // Create an image using the camera
-  camera_fb_t *fb = NULL;
-  fb = esp_camera_fb_get();
-
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    digitalWrite(LEDR, HIGH);
-    delay(500);
-    digitalWrite(LEDR, LOW);
-    return;
-  }
-
-  // Encoding the image
-  size_t size = fb->len;
-  String buffer = base64::encode((uint8_t *)fb->buf, fb->len);
-  String payload = "{\"user_app_id\": {\"user_id\": \"8rmb75748zzm\",\"app_id\": \"ESP32-API\"},\"workflow_id\": \"workflow-58c83d\", \"inputs\": [{ \"data\": {\"image\": {\"base64\": \"" + buffer + "\"}}}]}";
-
-  buffer = "";
-  // Uncomment this if you want to show the payload
-  //Serial.println(payload);
-
-  esp_camera_fb_return(fb);
-
-  // API Setup
-  // String model_id = "general-image-recognition";
-
-  HTTPClient http;
-  http.begin("https://api.clarifai.com/v2/users/8rmb75748zzm/apps/ESP32-API/workflows/workflow-58c83d/results");
-  http.addHeader("Accept", "application/json");
-  http.addHeader("Authorization", "Key ***");
-
-  int response_code = http.POST(payload);
-  String response;
-
-  if (response_code > 0) {
+  if( digitalRead(BUTTON) == HIGH ){
     digitalWrite(LEDG, HIGH);
-    Serial.print(response_code);
-    Serial.print("Returned String: ");
-    response = http.getString();
-    // Serial.println(response);
+    sendImage();
     digitalWrite(LEDG, LOW);
-  } else {
-    Serial.print("POST Error: ");
-    Serial.print(response_code);
-    return;
-  }
-
-  const int jsonSize = 2 * JSON_ARRAY_SIZE(0) + JSON_ARRAY_SIZE(1) + JSON_ARRAY_SIZE(20) + 4 * JSON_OBJECT_SIZE(0) + 7 * JSON_OBJECT_SIZE(1) + 5 * JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(3) + 21 * JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(6) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(18) + 3251;
-  DynamicJsonDocument doc(jsonSize);
-  deserializeJson(doc, response);
-
-  for (int i = 0; i < 10; i++) {
-
-    const String name = doc["outputs"][0]["data"]["concepts"][i]["name"];
-    const float prob = doc["outputs"][0]["data"]["concepts"][i]["value"];
-
-    Serial.println("________________________");
-    Serial.print("Name:");
-    Serial.println(name);
-    Serial.print("Probability:");
-    Serial.println(prob);
   }
 }
