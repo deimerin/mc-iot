@@ -24,8 +24,8 @@
 #define LEDG 0
 #define BUTTON 32
 
-const char *ssid = "***";
-const char *pass = "***";
+const char *ssid = "CARDENAS";
+const char *pass = "UqdkN296";
 const unsigned long timeout = 30000;  // 30 seconds
 
 void setup() {
@@ -56,13 +56,13 @@ void setup() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 10000000;
+  config.xclk_freq_hz = 8000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
   // Settings
-  config.frame_size = FRAMESIZE_QVGA;
-  config.jpeg_quality = 10;
-  config.fb_count = 2;
+  config.frame_size = FRAMESIZE_VGA;
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
 
   // Initializing camera
   esp_err_t err = esp_camera_init(&config);
@@ -73,10 +73,10 @@ void setup() {
   }
 
   // Video options
-  sensor_t *s = esp_camera_sensor_get();
-  s->set_vflip(s, 1);       //1-Upside down, 0-No operation
-  s->set_hmirror(s, 1);     //1-Reverse left and right, 0-No operation
-  s->set_brightness(s, 2);  //up the blightness just a bit
+  // sensor_t *s = esp_camera_sensor_get();
+  // s->set_vflip(s, 1);       //1-Upside down, 0-No operation
+  // s->set_hmirror(s, 1);     //1-Reverse left and right, 0-No operation
+  // s->set_brightness(s, 2);  //up the blightness just a bit
   // s->set_saturation(s, -1);  //lower the saturation
 
   // drop down frame size for higher initial frame rate
@@ -87,7 +87,8 @@ void setup() {
 void postImage(camera_fb_t *fb) {
   HTTPClient http;
   // Add server resource
-  http.begin("https://esp32-api-mediator-36025d758c37.herokuapp.com:55925/imageObjects");
+  http.begin("http://192.168.1.84:8888/imageLabels");
+  // http.begin("https://esp32-api-mediator-36025d758c37.herokuapp.com:55925/imageObjects");
   // imageObjects or imageLabels
   http.addHeader("Content-Type", "image/jpeg");
   int httpResponseCode = http.POST(fb->buf, fb->len);
