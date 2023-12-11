@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Update Valid Names</title>
+</head>
+<body>
+  <h1>Update Valid Names</h1>
+  <form id="updateForm">
+    <label for="validNames">New Valid Names (comma-separated):</label>
+    <input type="text" id="validNames" name="validNames" required>
+    <button type="button" onclick="updateValidNames()">Update Valid Names</button>
+  </form>
+
+  <script>
+    async function updateValidNames() {
+      const validNamesInput = document.getElementById('validNames');
+      const newValidNames = validNamesInput.value.split(',').map(name => name.trim());
+
+      try {
+        const response = await fetch('/updateValidNames', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ validNames: newValidNames }),
+        });
+
+        const data = await response.json();
+        alert(data.message);
+      } catch (error) {
+        console.error('Error updating valid names:', error);
+        alert('Error updating valid names');
+      }
+    }
+  </script>
+</body>
+</html>

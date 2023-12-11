@@ -1,0 +1,23 @@
+{
+  "name": "esp32-back",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "node",
+    "heroku",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/vision": "^4.0.2",
+    "body-parser": "^1.20.2",
+    "express": "^4.18.2",
+    "file-system": "^2.2.2"
+  }
+}

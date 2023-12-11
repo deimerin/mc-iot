@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Tints and shades",
+    "score": 0.7668284177780151
+  },
+  {
+    "name": "Circle",
+    "score": 0.7186326384544373
+  },
+  {
+    "name": "Gas",
+    "score": 0.7045325636863708
+  },
+  {
+    "name": "Parallel",
+    "score": 0.6749716997146606
+  },
+  {
+    "name": "Font",
+    "score": 0.6664183139801025
+  },
+  {
+    "name": "Electric blue",
+    "score": 0.6611001491546631
+  },
+  {
+    "name": "Rectangle",
+    "score": 0.6597033739089966
+  },
+  {
+    "name": "Symmetry",
+    "score": 0.6553601026535034
+  },
+  {
+    "name": "Darkness",
+    "score": 0.5781024098396301
+  },
+  {
+    "name": "Water",
+    "score": 0.5509717464447021
+  }
+]
