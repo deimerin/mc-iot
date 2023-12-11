@@ -1,7 +1,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <ESP32Servo.h>
 #include "esp_camera.h"
+#include <UltrasonicSensor.h>
 
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
@@ -20,20 +22,26 @@
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
-#define LEDR 13
-#define LEDG 0
-#define BUTTON 32
+#define LED 2
+#define SERVOPIN 15
+#define BUZZERPIN 0
 
-const char *ssid = "CARDENAS";
-const char *pass = "UqdkN296";
+UltrasonicSensor lidSensor(33, 32);
+UltrasonicSensor baseSensor(13, 14);
+
+Servo lidServo;
+
+const char *ssid = "****";
+const char *pass = "****";
+
+String apiKeyIn = "*****";  
 
 void setup() {
   Serial.begin(9600);
 
   // Connected Pins
-  pinMode(LEDR, OUTPUT);
-  pinMode(LEDG, OUTPUT);
-  pinMode(BUTTON, INPUT);
+  pinMode(LED, OUTPUT);
+  pinMode(BUZZERPIN, OUTPUT);
 
   // Camera config
   camera_config_t config;
@@ -55,45 +63,77 @@ void setup() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 8000000;        // 20000000 default
+  config.xclk_freq_hz = 8000000;         // 20000000 default
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
-  // config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
 
-  // config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // I dont know what this does
-  // config.fb_location = CAMERA_FB_IN_PSRAM; // Nor this
+  config.grab_mode = CAMERA_GRAB_LATEST;  // I dont know what this does
 
   // Setting 1
-  config.frame_size = FRAMESIZE_CIF;
+  config.frame_size = FRAMESIZE_CIF;  // CIF works fine, but I might try something else
   config.jpeg_quality = 12;
   config.fb_count = 1;
 
   // Initializing camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    digitalWrite(LEDR, HIGH);
+    digitalWrite(LED, HIGH);
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
+  // This can help picture quality
+
+  // Video options
+  // sensor_t *s = esp_camera_sensor_get();
+  // s->set_vflip(s, 1);       //1-Upside down, 0-No operation
+  // s->set_hmirror(s, 1);     //1-Reverse left and right, 0-No operation
+  // s->set_brightness(s, 2);  //up the blightness just a bit
+  // s->set_saturation(s, -1);  //lower the saturation
+
   // WiFi Setup
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LEDR, HIGH);
+    digitalWrite(LED, HIGH);
     delay(500);
-    digitalWrite(LEDR, LOW);
+    digitalWrite(LED, LOW);
     delay(500);
   }
 
-  Serial.println("POGGERS");
+  lidServo.setPeriodHertz(50);
+  lidServo.attach(SERVOPIN, 500, 2500);
+
+  int temperature = 22;
+  lidSensor.setTemperature(temperature);
+  baseSensor.setTemperature(temperature);
+
+  powerOnSound();
+  Serial.println("Device ON!");
 }
 
 void loop() {
 
-  if (digitalRead(BUTTON) == HIGH) {
-    digitalWrite(LEDG, HIGH);
+  int baseDistance = baseSensor.distanceInCentimeters();
+  // first test indicate a range between 20 to 25 cms
+  if (baseDistance > 20 && baseDistance < 25) {
+    Serial.println(baseDistance);
+    okSound();
     classify();
-    digitalWrite(LEDG, LOW);
   }
+  delay(500);
+}
+
+void openCloseLid(int del) {
+  lidOpeningSound();
+  lidServo.write(35);
+  delay(150);
+  lidServo.write(150);
+
+  delay(del);
+
+  lidClosingSound();
+  lidServo.write(35);
+  delay(1000);
+  updateSensor();
 }
 
 void classify() {
@@ -101,21 +141,147 @@ void classify() {
   // Create an image using the camera
   camera_fb_t *fb = NULL;
   fb = esp_camera_fb_get();
+  esp_camera_fb_return(fb);
+  fb = esp_camera_fb_get();
 
   if (!fb) {
     Serial.println("Camera capture failed");
-    digitalWrite(LEDR, HIGH);
+    digitalWrite(LED, HIGH);
     delay(500);
-    digitalWrite(LEDR, LOW);
+    digitalWrite(LED, LOW);
     return;
   }
 
-  // Encoding the image
-  esp_camera_fb_return(fb);
-
   // API Setup
   HTTPClient http;
-  http.begin("http://192.168.1.84:8888/imageLabels");
-  http.addHeader("Content-Type", "image/jpeg");
+  http.begin("http://esp32-api-mediator-36025d758c37.herokuapp.com/upload");
+  http.addHeader("Content-Type", "application/octet-stream");
   int httpResponseCode = http.POST(fb->buf, fb->len);
+
+  Serial.println(httpResponseCode);
+  esp_camera_fb_return(fb);
+
+  if (httpResponseCode > 0) {
+    String jsonResponse = http.getString();
+    Serial.println("Received JSON response:");
+
+    if (isObjectValid(jsonResponse)) {
+      Serial.println("VALID");
+      openCloseLid(5000);
+    } else {
+      Serial.println("NOT VALID");
+      errorSound();
+    }
+  } else {
+    Serial.print("HTTP request failed with error code: ");
+    Serial.println(httpResponseCode);
+    errorSound();
+  }
+
+  http.end();
+}
+
+bool isObjectValid(const String &jsonString) {
+  const size_t capacity = JSON_OBJECT_SIZE(1) + JSON_ARRAY_SIZE(10) + 60;
+  DynamicJsonDocument doc(capacity);
+
+  DeserializationError error = deserializeJson(doc, jsonString);
+
+  if (error) {
+    Serial.print(F("Error parsing JSON: "));
+    Serial.println(error.c_str());
+    errorSound();
+    return false;
+  }
+
+  // Check if the 'filteredData' array exists
+  if (doc.containsKey("filteredData")) {
+    JsonArray filteredData = doc["filteredData"];
+    Serial.println(filteredData.size());
+    return filteredData.size() > 0;
+  }
+
+  return false;
+}
+
+void powerOnSound() {
+
+  for (int i = 0; i < 3; ++i) {
+    digitalWrite(BUZZERPIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZERPIN, LOW);
+    delay(50);
+  }
+
+  delay(200);
+  digitalWrite(BUZZERPIN, LOW);
+}
+
+void errorSound() {
+
+  for (int i = 0; i < 5; ++i) {
+    digitalWrite(BUZZERPIN, HIGH);
+    delay(200);
+    digitalWrite(BUZZERPIN, LOW);
+    delay(100);
+  }
+
+  digitalWrite(BUZZERPIN, LOW);
+}
+
+void okSound() {
+
+  for (int i = 0; i < 2; ++i) {
+    digitalWrite(BUZZERPIN, HIGH);
+    delay(150);
+    digitalWrite(BUZZERPIN, LOW);
+    delay(50);
+  }
+
+  digitalWrite(BUZZERPIN, LOW);
+}
+
+void lidOpeningSound() {
+
+  for (int i = 0; i < 2; ++i) {
+    digitalWrite(BUZZERPIN, HIGH);
+    delay(150);
+    digitalWrite(BUZZERPIN, LOW);
+    delay(50);
+  }
+
+  digitalWrite(BUZZERPIN, LOW);
+}
+
+void lidClosingSound() {
+
+  for (int i = 0; i < 3; ++i) {
+    digitalWrite(BUZZERPIN, HIGH);
+    delay(200);
+    digitalWrite(BUZZERPIN, LOW);
+    delay(50);
+  }
+
+  digitalWrite(BUZZERPIN, LOW);
+}
+
+void updateSensor() {
+  HTTPClient ask;
+  int lidDistance = lidSensor.distanceInCentimeters();
+  int percentageDistance = map(lidDistance, 2, 17, 100, 0);
+  Serial.println(lidDistance);
+  Serial.println(percentageDistance);
+  String url = "http://api.asksensors.com/write/" + apiKeyIn + "?module1=" + String(percentageDistance);
+
+  ask.begin(url);
+  int httpCode = ask.GET();
+
+  if (httpCode > 0) {
+    Serial.println(ask.getString());
+  } else {
+    Serial.println("Error on HTTP request");
+    Serial.println(ask.errorToString(httpCode).c_str());
+  }
+
+  ask.end();
 }
